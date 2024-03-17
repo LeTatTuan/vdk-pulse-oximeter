@@ -13,10 +13,11 @@ float spo2 = 0.0;
 #define LCD_COLUMNS 16
 #define LCD_ROWS 2
 
-#define LED_PIN_1 10  // Chân digital để kích hoạt đèn 1
-#define LED_PIN_2 11  // Chân digital để kích hoạt đèn 2
-#define LED_PIN 5
-#define THRESHOLD_MIN 0 // Ngưỡng nhịp tim
+#define LED_PIN_1 10  // Chan dau ra cua den 1 (bật khi bắt đầu đo nhịp tim)
+#define LED_PIN_2 11  // Chan dau ra cua den 2 (bật khi dừng đo nhịp tim)
+#define LED_PIN 5     // PWD độ sáng tăng dần theo nhịp tim
+// Nguong nhip tim
+#define THRESHOLD_MIN 0
 #define THRESHOLD_MAX 180
 
 LiquidCrystal_I2C lcd(LCD_ADDRESS, LCD_COLUMNS, LCD_ROWS);
@@ -25,13 +26,7 @@ LiquidCrystal_I2C lcd(LCD_ADDRESS, LCD_COLUMNS, LCD_ROWS);
 
 bool isMeasuring = false;  // Biến cờ để xác định liệu đang đo nhịp tim hay không
 
-
-void onBeatDetected() {
-  Serial.println("Beat detected!");
-}
-
 void setup() {
-
   Serial.begin(9600);
   lcd.init();
   lcd.backlight();
@@ -54,20 +49,19 @@ void setup() {
 
   pox.setIRLedCurrent(MAX30100_LED_CURR_7_6MA);  // Thiết lập dòng điện cho đèn LED hồng ngoại
 
-  //pox.setOnBeatDetectedCallback(onBeatDetected);  // Standard beat detection callback
-  pinMode(2, INPUT_PULLUP);  // Chân input với điện trở pull-up cho nút bắt đầu đo nhịp tim
-  pinMode(3, INPUT_PULLUP);  // Chân input với điện trở pull-up cho nút dừng đo nhịp tim
+  pinMode(BUTTON_PIN_START, INPUT_PULLUP);
+  pinMode(BUTTON_PIN_STOP, INPUT_PULLUP);
 
-  attachInterrupt(digitalPinToInterrupt(2), startMeasurement, FALLING);
-  attachInterrupt(digitalPinToInterrupt(3), stopMeasurement, FALLING);
+  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN_START), startMeasurement, FALLING);
+  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN_STOP), stopMeasurement, FALLING);
 }
 
 void loop() {
   pox.update();
-  heartRate = pox.getHeartRate();
-  spo2 = pox.getSpO2();
-
   if (isMeasuring) {
+    heartRate = pox.getHeartRate();
+    spo2 = pox.getSpO2();
+
     if (millis() - tsLastReport > REPORTING_PERIOD_MS) {
       int analogValueA4 = analogRead(A4);  // Đọc giá trị điện áp từ chân A4
       int analogValueA5 = analogRead(A5);  // Đọc giá trị điện áp từ chân A5
@@ -84,6 +78,7 @@ void loop() {
       Serial.print(" bpm / SpO2: ");
       Serial.print(spo2);
       Serial.println(" %");
+      Serial.println("-----------------------------");
 
       int brightness = map(heartRate, THRESHOLD_MIN, THRESHOLD_MAX, 0, 255);
       analogWrite(LED_PIN, brightness);

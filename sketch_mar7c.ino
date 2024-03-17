@@ -1,104 +1,154 @@
-// #include "Wire.h"
-// #include "MAX30100_PulseOximeter.h"
-// #include "LiquidCrystal_I2C.h"
+#include "Wire.h"
+#include "MAX30100_PulseOximeter.h"
+#include "LiquidCrystal_I2C.h"
 
-// #define REPORTING_PERIOD_MS 1000
+#define REPORTING_PERIOD_MS 5000
 
-// PulseOximeter pox;
-// uint32_t tsLastReport = 0;
-// uint32_t count = 0;
+PulseOximeter pox;
+uint32_t tsLastReport = 0;
+float heartRate = 0.0;
+float spo2 = 0.0;
 
-// #define LCD_ADDRESS 0x27
-// #define LCD_COLUMNS 16
-// #define LCD_ROWS 2
+#define LCD_ADDRESS 0x27
+#define LCD_COLUMNS 16
+#define LCD_ROWS 2
 
-// #define LED_PIN_1 10  // Chân digital để kích hoạt đèn 1
-// #define LED_PIN_2 11  // Chân digital để kích hoạt đèn 2
-// #define LED_PIN 5
-// #define THRESHOLD 100  // Ngưỡng nhịp tim
+#define LED_PIN_1 10 // Chan dau ra cua den 1 (bật khi bắt đầu đo nhịp tim)
+#define LED_PIN_2 11 // Chan dau ra cua den 2 (bật khi dừng đo nhịp tim)
+#define LED_PIN 5    // PWD độ sáng tăng dần theo nhịp tim
+// Nguong nhip tim
+#define THRESHOLD_MIN 0
+#define THRESHOLD_MAX 180
 
-// LiquidCrystal_I2C lcd(LCD_ADDRESS, LCD_COLUMNS, LCD_ROWS);
+LiquidCrystal_I2C lcd(LCD_ADDRESS, LCD_COLUMNS, LCD_ROWS);
+#define BUTTON_PIN_START 2 // Chân của nút nhấn bắt đầu đo nhịp tim
+#define BUTTON_PIN_STOP 3  // Chân của nút nhấn dừng đo nhịp tim
 
-// void onBeatDetected() {
-//   Serial.println("Beat detected!");
-// }
+bool isMeasuring = false; // Biến cờ để xác định liệu đang đo nhịp tim hay không
 
-// void setup() {
+unsigned long count = 0;  // Biến đếm số lần phát hiện nhịp đập trong 5 giây
+float sumHeartRate = 0.0; // Tổng các giá trị nhịp đập trong 5 giây
+float sumSpO2 = 0.0;      // Tổng các giá trị SpO2 trong 5 giây
+int analogValueA4 = 0.0;
+int analogValueA5 = 0.0;
 
-//   Serial.begin(9600);
-//   //lcd.begin(LCD_COLUMNS, LCD_ROWS);
-//   lcd.init();
-//   lcd.backlight();
+void setup()
+{
+    Serial.begin(9600);
+    lcd.init();
+    lcd.backlight();
 
-//   // Khởi tạo đèn LED
-//   pinMode(LED_PIN, OUTPUT);
-//   pinMode(LED_PIN_1, OUTPUT);
-//   pinMode(LED_PIN_2, OUTPUT);
+    pinMode(LED_PIN, OUTPUT);
+    pinMode(LED_PIN_1, OUTPUT);
+    pinMode(LED_PIN_2, OUTPUT);
 
-//   // Initialize PulseOximeter
-//   if (!pox.begin()) {
-//     Serial.println("FAILED");
-//     lcd.print("Sensor failed");
-//     for (;;)
-//       ;
-//   } else {
-//     Serial.println("SUCCESS");
-//     lcd.print("Sensor ready");
-//   }
+    if (!pox.begin())
+    {
+        Serial.println("FAILED");
+        lcd.print("Sensor failed");
+        for (;;)
+            ;
+    }
+    else
+    {
+        Serial.println("SUCCESS");
+        lcd.print("Sensor ready");
+    }
 
-//   pox.setIRLedCurrent(MAX30100_LED_CURR_7_6MA);  // Thiết lập dòng điện cho đèn LED hồng ngoại
+    pox.setIRLedCurrent(MAX30100_LED_CURR_7_6MA);
+    pox.setOnBeatDetectedCallback(onBeatDetected);
 
-// pox.setOnBeatDetectedCallback(onBeatDetected); // Standard beat detection callback
-// }
-// // 
-// void loop() {
-//   pox.update();
-//   float heartRate = pox.getHeartRate();
-//   float spo2 = pox.getSpO2();
+    pinMode(BUTTON_PIN_START, INPUT_PULLUP);
+    pinMode(BUTTON_PIN_STOP, INPUT_PULLUP);
 
-//   if (millis() - tsLastReport > REPORTING_PERIOD_MS) {
-//     int analogValueA4 = analogRead(A4);  // Đọc giá trị điện áp từ chân A4
-//     int analogValueA5 = analogRead(A5);  // Đọc giá trị điện áp từ chân A5
+    attachInterrupt(digitalPinToInterrupt(BUTTON_PIN_START), startMeasurement, FALLING);
+    attachInterrupt(digitalPinToInterrupt(BUTTON_PIN_STOP), stopMeasurement, FALLING);
+}
 
-//     Serial.print("Analog value from A4: ");
-//     Serial.println(analogValueA4 * 5.0 / 1023.0);
+void loop()
+{
+    pox.update();
+    heartRate = pox.getHeartRate();
+    spo2 = pox.getSpO2();
 
-//     Serial.print("Analog value from A5: ");
-//     Serial.println(analogValueA5 * 5.0 / 1023.0);
-//     Serial.println(count);
-//     int brightness = map(heartRate, THRESHOLD, 200, 0, 255);
-//     Serial.print("Bright ness: ");
-//     Serial.println(brightness);
-//     // Điều khiển độ sáng đèn LED
-//     analogWrite(LED_PIN, brightness);
-//     if (heartRate > THRESHOLD) {
-//       digitalWrite(LED_PIN_1, HIGH);  // Bật đèn 1
-//       digitalWrite(LED_PIN_2, LOW);   // Tắt đèn 2
-//     } else {
-//       digitalWrite(LED_PIN_1, LOW);   // Tắt đèn 1
-//       digitalWrite(LED_PIN_2, HIGH);  // Bật đèn 2
-//     }
+    if (isMeasuring)
+    {
+        count++;
+        sumHeartRate += heartRate;
+        sumSpO2 += spo2;
+        analogValueA4 = analogRead(A4);
+        analogValueA5 = analogRead(A5);
 
-//     Serial.print("Heart rate: ");
-//     Serial.print(heartRate);
-//     Serial.print(" bpm / SpO2: ");
-//     Serial.print(spo2);
-//     Serial.println(" %");
+        if (millis() - tsLastReport > REPORTING_PERIOD_MS)
+        {
 
-//     lcd.clear();
-//     lcd.setCursor(0, 0);
-//     lcd.print("BPM: ");
-//     lcd.setCursor(6, 0);
-//     lcd.print(heartRate);
-//     lcd.setCursor(12, 0);
-//     lcd.print("bmp");
-//     lcd.setCursor(0, 1);
-//     lcd.print("SpO2: ");
-//     lcd.setCursor(6, 1);
-//     lcd.print(spo2);
-//     lcd.setCursor(12, 1);
-//     lcd.print("%");
+            float avgHeartRate = sumHeartRate / count;
+            float avgSpo2 = sumSpO2 / count;
 
-//     tsLastReport = millis();
-//   }
-// }
+            Serial.print("Heart rate: ");
+            Serial.print(avgHeartRate);
+            Serial.print(" bpm / SpO2: ");
+            Serial.print(avgSpo2);
+            Serial.println(" %");
+
+            Serial.print("Analog value from A4: ");
+            Serial.println(analogValueA4 * 5.0 / 1023.0);
+
+            Serial.print("Analog value from A5: ");
+            Serial.println(analogValueA5 * 5.0 / 1023.0);
+            Serial.print("So lan dap trong 5s: ");
+            Serial.println(count);
+            Serial.println("-----------------------------");
+
+            int brightness = map(avgHeartRate, THRESHOLD_MIN, THRESHOLD_MAX, 0, 255);
+            analogWrite(LED_PIN, brightness);
+
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("BPM: ");
+            lcd.setCursor(6, 0);
+            lcd.print(avgHeartRate);
+            lcd.setCursor(12, 0);
+            lcd.print("bmp");
+
+            lcd.setCursor(0, 1);
+            lcd.print("SpO2: ");
+            lcd.setCursor(6, 1);
+            lcd.print(avgSpo2);
+            lcd.setCursor(12, 1);
+            lcd.print("%");
+
+            // Reset cac bien dem va tong
+            count = 0;
+            sumHeartRate = 0.0;
+            sumSpO2 = 0.0;
+
+            tsLastReport = millis();
+        }
+    }
+}
+
+void startMeasurement()
+{
+    digitalWrite(LED_PIN_1, HIGH);
+    digitalWrite(LED_PIN_2, LOW);
+    isMeasuring = true;
+    Serial.println("Start: ");
+}
+
+void stopMeasurement()
+{
+    digitalWrite(LED_PIN_1, LOW);
+    digitalWrite(LED_PIN_2, HIGH);
+    isMeasuring = false;
+    Serial.println("Stop: ");
+    if (digitalRead(LED_PIN) == HIGH)
+    {
+        analogWrite(LED_PIN, 0);
+    }
+}
+
+void onBeatDetected()
+{
+    Serial.println("Beat detected!");
+}
